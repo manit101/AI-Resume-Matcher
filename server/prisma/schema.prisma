@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  firebaseId String   @unique // Link to Firebase Auth
+  email      String   @unique
+  name       String?
+  role       Role     @default(RECRUITER)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  resumes         Resume[]
+  jobDescriptions JobDescription[]
+  actions         RecruiterAction[]
+}
+
+model JobDescription {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  title        String
+  description  String
+  requirements String?  // Stored as JSON or Text
+  parsedData   Json?    // Added based on feedback
+  requirementsEmbedding Json? // Embedding array
+  contentHash  String?  // Cache hash to prevent reprocessing
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  matchResults MatchResult[]
+}
+
+model Resume {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  fileName       String
+  fileUrl        String       // Firebase Storage URL
+  status         ResumeStatus @default(PENDING) // PENDING, PROCESSING, COMPLETED, FAILED
+  contentHash    String?      // Cache hash to prevent reprocessing
+  
+  parsedData     Json?        // Structured data after AI parsing
+  
+  skillsText     String?
+  experienceText String?
+  fullText       String?
+
+  skillsEmbedding     Json?
+  experienceEmbedding Json?
+  fullEmbedding       Json?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  matchResults   MatchResult[]
+}
+
+model MatchResult {
+  id               String   @id @default(uuid())
+  resumeId         String
+  jobDescriptionId String
+  resume           Resume   @relation(fields: [resumeId], references: [id])
+  jobDescription   JobDescription @relation(fields: [jobDescriptionId], references: [id])
+  
+  score            Float    // Overall match percentage
+  explanation      String?  // AI generated reasoning
+  matchedSkills    Json?
+  missingSkills    Json?
+  experienceGap    String?
+  
+  status           MatchStatus @default(PROCESSING)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([resumeId, jobDescriptionId])
+}
+
+model RecruiterAction {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String   // e.g., "VIEWED_MATCH", "SHORTLISTED", "REJECTED"
+  targetId  String   // ID of the resume or match result
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  RECRUITER
+  ADMIN
+}
+
+enum ResumeStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum MatchStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
