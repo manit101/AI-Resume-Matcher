@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create Axios instance with base URL pointing to our Express server
 const API = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: 'https://resume-matcher-backend-fntt.onrender.com/api',
 });
 
 // Interceptor to attach Firebase dummy token for auth middleware
