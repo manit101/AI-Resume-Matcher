@@ -1,7 +1,7 @@
 FROM node:20-slim
 
-# Install poppler-utils for pdftoppm (required for OCR fallback)
-RUN apt-get update && apt-get install -y poppler-utils && rm -rf /var/lib/apt/lists/*
+# Install poppler-utils (for OCR) and openssl (required for Prisma)
+RUN apt-get update && apt-get install -y poppler-utils openssl && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /app
