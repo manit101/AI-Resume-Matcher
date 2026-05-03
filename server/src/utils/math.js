@@ -34,8 +34,8 @@ exports.cosineSimilarity = (vecA, vecB) => {
 exports.cosineSimilarityScaled = (vecA, vecB) => {
   const sim = exports.cosineSimilarity(vecA, vecB);
   // OpenAI text-embedding-3-small vectors are highly clustered.
-  // A similarity of < 0.35 is usually completely unrelated.
-  // Scale it: (sim - 0.35) / 0.65 * 100
-  const scaled = (sim - 0.35) / 0.65;
+  // A similarity of < 0.20 is usually completely unrelated.
+  // Scale it: (sim - 0.20) / 0.80 * 100
+  const scaled = (sim - 0.20) / 0.80;
   return Math.max(0, Math.min(100, scaled * 100));
 };

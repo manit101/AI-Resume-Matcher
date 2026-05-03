@@ -3,6 +3,21 @@ const prisma = new PrismaClient();
 const { cosineSimilarityScaled } = require('../utils/math');
 const { extractYearsOfExperience, scoreExperience, parseRequiredYears } = require('../utils/experienceParser');
 const { generateExplanationsBatch } = require('../ai/generateExplanation');
+const { matchSkillsWithAIBatch } = require('../ai/matchSkills');
+
+/** Chunk an array into smaller arrays of given size */
+const chunk = (arr, size) => {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+};
+
+// Max resumes per AI skill-matching call (prevents exceeding context/output limits)
+const SKILL_MATCH_CHUNK_SIZE = 10;
+// Max matches per explanation generation call
+const EXPLANATION_CHUNK_SIZE = 20;
 
 /**
  * Normalizes a skill string for comparison
@@ -14,80 +29,6 @@ const normalizeSkill = (skill) => {
     .replace(/^(knowledge of|experience with|familiarity with|understanding of|ability to|proficient in|proficiency in|strong|basic|working knowledge of)\s+/i, '')
     .replace(/[^\w\s+#.-]/g, '')
     .trim();
-};
-
-/**
- * Computes skill match score and categorizes matched/missing
- * @param {Array<string>} resumeSkills 
- * @param {Array<string>} requiredSkills 
- * @param {string} fullText
- */
-const computeSkillMatch = (resumeSkills = [], requiredSkills = [], fullText = "") => {
-  if (!requiredSkills || requiredSkills.length === 0) {
-    return { score: 100, matchedSkills: [], missingSkills: [] };
-  }
-  
-  const safeResumeSkills = Array.isArray(resumeSkills) ? resumeSkills : [];
-  const normalizedResume = new Set(safeResumeSkills.map(normalizeSkill));
-  const lowerFullText = fullText ? fullText.toLowerCase() : "";
-  
-  const matchedSkills = [];
-  const missingSkills = [];
-
-  for (const reqSkill of requiredSkills) {
-    const normReq = normalizeSkill(reqSkill);
-    let found = false;
-
-    // 1. Check extracted skills array
-    for (const resSkill of normalizedResume) {
-      if (resSkill === normReq) {
-        found = true;
-        break;
-      }
-      
-      // If either string is very short (like "c" or "r"), require exact match
-      if (resSkill.length <= 2 || normReq.length <= 2) {
-        continue;
-      }
-      
-      if (resSkill.includes(normReq) || normReq.includes(resSkill)) {
-        found = true;
-        break;
-      }
-    }
-
-    // 2. Fallback: Check raw text if not found in skills array
-    if (!found && lowerFullText) {
-      let searchStr = normReq;
-      if (searchStr.endsWith('s') && searchStr.length > 3) {
-        searchStr = searchStr.slice(0, -1);
-      }
-      
-      // Use whole-word boundary regex to prevent false positives like "c" in "react"
-      try {
-        // Escape special regex chars like +, ., # for the search string
-        const escapedSearchStr = searchStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`\\b${escapedSearchStr}\\b`, 'i');
-        if (regex.test(lowerFullText)) {
-          found = true;
-        }
-      } catch (e) {
-        // Fallback to strict includes if regex fails
-        if (searchStr.length > 3 && lowerFullText.includes(searchStr)) {
-          found = true;
-        }
-      }
-    }
-
-    if (found) {
-      matchedSkills.push(reqSkill);
-    } else {
-      missingSkills.push(reqSkill);
-    }
-  }
-
-  const score = (matchedSkills.length / requiredSkills.length) * 100;
-  return { score, matchedSkills, missingSkills };
 };
 
 const formatYears = (years) => {
@@ -138,15 +79,40 @@ exports.matchPipeline = async (jobId) => {
     
     const intermediateMatches = [];
 
+    // Prepare data for batch AI matching
+    const matchDataForAI = resumesToProcess.map(resume => ({
+      resumeId: resume.id,
+      resumeSkills: resume.parsedData?.skills || [],
+      resumeFullText: resume.fullText || ""
+    }));
+
+    // Use AI to match skills in chunked batches (prevents exceeding context window for large resume sets)
+    const matchChunks = chunk(matchDataForAI, SKILL_MATCH_CHUNK_SIZE);
+    const allSkillMatches = [];
+    for (const matchChunk of matchChunks) {
+      const chunkResults = await matchSkillsWithAIBatch(matchChunk, jdRequiredSkills);
+      allSkillMatches.push(...chunkResults);
+    }
+    const aiMatchMap = allSkillMatches.reduce((acc, m) => {
+      acc[m.resumeId] = m;
+      return acc;
+    }, {});
+
     for (const resume of resumesToProcess) {
-      // 1. Semantic Score (50%)
+      // Get AI-powered skill matching
+      const aiMatch = aiMatchMap[resume.id] || { 
+        matchedSkills: [], 
+        missingSkills: jdRequiredSkills, 
+        skillScore: 0 
+      };
+
+      // 1. Semantic Score
       const semanticScore = cosineSimilarityScaled(resume.fullEmbedding || [], jd.requirementsEmbedding || []);
 
-      // 2. Skill Score (30%)
-      const resumeSkills = resume.parsedData?.skills || [];
-      const skillMatch = computeSkillMatch(resumeSkills, jdRequiredSkills, resume.fullText || "");
+      // 2. Skill Score - AI-powered matching
+      const skillScore = aiMatch.skillScore || 0;
 
-      // 3. Experience Score (20%)
+      // 3. Experience Score
       let resumeYears = 0;
       if (resume.parsedData && typeof resume.parsedData.total_years_experience === 'number') {
         resumeYears = resume.parsedData.total_years_experience;
@@ -168,22 +134,44 @@ exports.matchPipeline = async (jobId) => {
         experienceGap = `Short by ${formatYears(requiredYearsNum - resumeYears)}`;
       }
 
-      // 4. Final Score
-      const finalScore = (0.5 * semanticScore) + (0.3 * skillMatch.score) + (0.2 * experienceScore);
+      // 4. Dynamic Weights — adapt based on JD context
+      // Skills are the most reliable signal (AI-powered). Semantic embeddings are noisy tie-breakers.
+      let wSemantic, wSkill, wExperience;
+      
+      if (requiredYearsNum === 0) {
+        // No experience specified (intern/entry-level/unspecified):
+        // Skills dominate; experience is irrelevant; semantic is a minor tie-breaker
+        wSemantic = 0.10;
+        wSkill = 0.90;
+        wExperience = 0.00;
+      } else {
+        // Experience is specified: skills still lead, experience matters, semantic is a tie-breaker
+        wSemantic = 0.10;
+        wSkill = 0.55;
+        wExperience = 0.35;
+      }
+
+      let finalScore = (wSemantic * semanticScore) + (wSkill * skillScore) + (wExperience * experienceScore);
+
+      // 5. Relevance Gate — if skill match is extremely low, cap the total score
+      // A candidate with near-zero skill overlap should not score high regardless of experience/semantics
+      if (skillScore < 10) {
+        finalScore = Math.min(finalScore, Math.max(skillScore, 5));
+      }
 
       intermediateMatches.push({
         id: `${resume.id}_${jd.id}`, // temp id for batching
         resumeId: resume.id,
         jobDescriptionId: jd.id,
         score: finalScore,
-        matchedSkills: skillMatch.matchedSkills,
-        missingSkills: skillMatch.missingSkills,
+        matchedSkills: aiMatch.matchedSkills,
+        missingSkills: aiMatch.missingSkills,
         experienceGap,
         status: 'COMPLETED'
       });
     }
 
-    // Generate explanations in batch
+    // Generate explanations in chunked batches (prevents exceeding context window)
     const explanationInput = intermediateMatches.map(m => ({
       id: m.id,
       matchedSkills: m.matchedSkills,
@@ -191,17 +179,22 @@ exports.matchPipeline = async (jobId) => {
       experienceGap: m.experienceGap
     }));
 
-    const explanations = await generateExplanationsBatch(explanationInput);
-    const expMap = explanations.reduce((acc, curr) => {
+    const expChunks = chunk(explanationInput, EXPLANATION_CHUNK_SIZE);
+    const allExplanations = [];
+    for (const expChunk of expChunks) {
+      const chunkResults = await generateExplanationsBatch(expChunk);
+      allExplanations.push(...chunkResults);
+    }
+    const expMap = allExplanations.reduce((acc, curr) => {
       acc[curr.id] = curr.explanation;
       return acc;
     }, {});
 
-    // Save all to database (Upsert)
-    for (const match of intermediateMatches) {
+    // Save all to database (parallel upserts for speed)
+    await Promise.all(intermediateMatches.map(match => {
       const explanation = expMap[match.id] || "Good fit based on overall profile.";
       
-      await prisma.matchResult.upsert({
+      return prisma.matchResult.upsert({
         where: {
           resumeId_jobDescriptionId: {
             resumeId: match.resumeId,
@@ -227,7 +220,7 @@ exports.matchPipeline = async (jobId) => {
           status: 'COMPLETED'
         }
       });
-    }
+    }));
 
     console.log(`Successfully completed matching pipeline for JD ${jobId}`);
 

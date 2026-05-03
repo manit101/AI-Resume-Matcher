@@ -30,15 +30,20 @@ exports.uploadResume = async (req, res) => {
       });
     }
 
-    if (isNew) {
-      // Asynchronously trigger the AI processing pipeline only for new resumes
+    // Determine if the resume needs (re)processing
+    // A resume needs processing if it's new OR if it exists but has empty/insufficient data
+    // (e.g., scanned PDFs that failed text extraction before OCR was available)
+    const needsProcessing = isNew || !resume.fullText || resume.fullText.length < 50;
+
+    if (needsProcessing) {
+      // Trigger the full AI processing pipeline (text extraction → parsing → embeddings)
       processResumePipeline(resume.id, jobId).catch(err => {
         console.error(`Background pipeline error for ${resume.id}:`, err);
       });
     } else if (jobId) {
-      // If the resume is cached, trigger the matching immediately
+      // Resume has good data already — just trigger matching against the new JD
       matchService.matchPipeline(jobId).catch(err => {
-        console.error(`Match error for cached resume ${resume.id}:`, err);
+        console.error(`Match error for resume ${resume.id}:`, err);
       });
     }
 

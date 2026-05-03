@@ -77,25 +77,37 @@ exports.parseRequiredYears = parseRequiredYears;
 
 /**
  * Computes an experience score scaled from 0-100 based on candidate vs required years.
+ * Uses linear interpolation for smooth gradients instead of hard cutoffs.
  * @param {number} candidateYears 
  * @param {number|string} requiredYearsInput - e.g. 5, "5", "3-5"
  * @returns {number} Score from 0 to 100
  */
 exports.scoreExperience = (candidateYears, requiredYearsInput) => {
-  if (requiredYearsInput == null || requiredYearsInput === '') return 100; // No requirement = perfect score
+  if (requiredYearsInput == null || requiredYearsInput === '') return 70; // No requirement = neutral score (don't inflate irrelevant candidates)
 
   const requiredYears = parseRequiredYears(requiredYearsInput);
 
-  if (requiredYears === 0) return 100;
+  if (requiredYears === 0) return 70;
 
+  // If candidate meets or exceeds requirement, give full score
   if (candidateYears >= requiredYears) {
-    return 100; // full score
+    return 100;
   }
 
+  // Linear interpolation for candidates below requirement
+  // Score decreases gradually from 100 to 0 as experience gap increases
+  // At 0 years experience when years are required: 0 score
+  // At half the required years: 50 score
+  // At required years: 100 score
   const gap = requiredYears - candidateYears;
-  if (gap <= 2 && gap > 0) {
-    return 50; // slightly less -> partial score
+  
+  // If candidate has at least 50% of required experience, give partial score
+  // Otherwise scale down more aggressively
+  if (candidateYears >= requiredYears * 0.5) {
+    // Linear: from 50 at (requiredYears * 0.5) to 100 at requiredYears
+    return 50 + ((candidateYears - requiredYears * 0.5) / (requiredYears * 0.5)) * 50;
+  } else {
+    // Linear: from 0 at 0 years to 50 at (requiredYears * 0.5)
+    return (candidateYears / (requiredYears * 0.5)) * 50;
   }
-
-  return 0; // much less -> low score
 };

@@ -30,7 +30,6 @@ model JobDescription {
   requirements String?  // Stored as JSON or Text
   parsedData   Json?    // Added based on feedback
   requirementsEmbedding Json? // Embedding array
-  contentHash  String?  // Cache hash to prevent reprocessing
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -45,7 +44,6 @@ model Resume {
   fileName       String
   fileUrl        String       // Firebase Storage URL
   status         ResumeStatus @default(PENDING) // PENDING, PROCESSING, COMPLETED, FAILED
-  contentHash    String?      // Cache hash to prevent reprocessing
   
   parsedData     Json?        // Structured data after AI parsing
   

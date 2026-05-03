@@ -10,7 +10,7 @@ exports.generateExplanationsBatch = async (matchDataList) => {
   if (!matchDataList || matchDataList.length === 0) return [];
 
   try {
-    const prompt = `You are a technical recruiter. For each candidate match below, generate a concise 1-line explanation (max 20 words) summarizing their fit based on the provided skills and experience gap.
+    const prompt = `You are an expert recruiter. For each candidate match below, generate a concise 1-line explanation (max 20 words) summarizing their fit based on the provided skills and experience gap.
     
     Respond STRICTLY with a JSON object containing an array called "explanations", where each element has the candidate's "id" and their "explanation".
     

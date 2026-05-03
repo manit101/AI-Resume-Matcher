@@ -1,6 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
 const pLimit = require('p-limit');
-const crypto = require('crypto');
 const { extractTextFromPdfUrl } = require('../utils/pdfExtractor');
 const { parseResume } = require('../ai/parseResume');
 const { parseJD } = require('../ai/parseJD');
@@ -10,14 +9,15 @@ const { optimizeText } = require('../utils/textOptimizer');
 
 const prisma = new PrismaClient();
 
-// Limit concurrent resume processing to 3 to prevent OpenAI API overload
-const resumeLimit = pLimit(3);
+// Limit concurrent resume processing to 5 (safe for OpenAI tier-1 rate limits)
+const resumeLimit = pLimit(5);
 // Limit concurrent JD processing to 5
 const jdLimit = pLimit(5);
 
 /**
  * Core pipeline for processing a Resume
  * @param {string} resumeId
+ * @param {string} jobId
  */
 const processResumePipeline = async (resumeId, jobId) => {
   return resumeLimit(async () => {
@@ -26,10 +26,21 @@ const processResumePipeline = async (resumeId, jobId) => {
       const resume = await prisma.resume.findUnique({ where: { id: resumeId } });
       if (!resume) throw new Error(`Resume ${resumeId} not found`);
 
-      // Prevent duplicate processing
-      if (resume.status === 'COMPLETED') {
-        console.log(`Resume ${resumeId} is already COMPLETED. Skipping.`);
+      // Prevent duplicate processing — but reprocess if parsed data is empty/insufficient
+      // (e.g., scanned PDFs that were processed before OCR was available)
+      const hasGoodData = resume.fullText && resume.fullText.length > 50;
+      if (resume.status === 'COMPLETED' && hasGoodData) {
+        console.log(`Resume ${resumeId} is already COMPLETED with good data. Skipping.`);
+        // Still trigger matching in case the JD is new
+        if (jobId) {
+          matchService.matchPipeline(jobId).catch(err => {
+            console.error(`Matching error for JD ${jobId}:`, err);
+          });
+        }
         return;
+      }
+      if (resume.status === 'COMPLETED' && !hasGoodData) {
+        console.log(`Resume ${resumeId} is COMPLETED but has insufficient data. Reprocessing...`);
       }
 
       // Set status to processing
@@ -40,41 +51,6 @@ const processResumePipeline = async (resumeId, jobId) => {
 
       // 2. Extract text from PDF
       const rawText = await extractTextFromPdfUrl(resume.fileUrl);
-      const optimizedRawText = optimizeText(rawText);
-      const contentHash = crypto.createHash('sha256').update(optimizedRawText).digest('hex');
-
-      // 2.5 Check Cache
-      const cachedResume = await prisma.resume.findFirst({
-        where: { contentHash, status: 'COMPLETED' },
-        orderBy: { createdAt: 'asc' }
-      });
-
-      if (cachedResume && cachedResume.id !== resumeId) {
-        console.log(`[Cache HIT] Resume reused for ${resumeId}`);
-        await prisma.resume.update({
-          where: { id: resumeId },
-          data: {
-            parsedData: cachedResume.parsedData,
-            skillsText: cachedResume.skillsText,
-            experienceText: cachedResume.experienceText,
-            fullText: cachedResume.fullText,
-            skillsEmbedding: cachedResume.skillsEmbedding,
-            experienceEmbedding: cachedResume.experienceEmbedding,
-            fullEmbedding: cachedResume.fullEmbedding,
-            contentHash,
-            status: 'COMPLETED'
-          }
-        });
-        
-        if (jobId) {
-          matchService.matchPipeline(jobId).catch(err => {
-            console.error(`Matching error for JD ${jobId}:`, err);
-          });
-        }
-        return;
-      }
-
-      console.log(`[Cache MISS] Resume processed for ${resumeId}`);
 
       // 3. Parse resume using OpenAI -> structured JSON
       const parsedData = await parseResume(rawText);
@@ -103,7 +79,6 @@ const processResumePipeline = async (resumeId, jobId) => {
           skillsEmbedding: skillsEmbedding || null,
           experienceEmbedding: experienceEmbedding || null,
           fullEmbedding: fullEmbedding || null,
-          contentHash,
           status: 'COMPLETED'
         }
       });
@@ -144,35 +119,6 @@ const processJDPipeline = async (jdId) => {
         return;
       }
 
-      const combinedText = `${jd.title} ${jd.description} ${jd.requirements || ''}`;
-      const optimizedText = optimizeText(combinedText);
-      const contentHash = crypto.createHash('sha256').update(optimizedText).digest('hex');
-
-      // Check Cache
-      const cachedJD = await prisma.jobDescription.findFirst({
-        where: { contentHash, parsedData: { not: null } },
-        orderBy: { createdAt: 'asc' }
-      });
-
-      if (cachedJD && cachedJD.id !== jdId) {
-        console.log(`[Cache HIT] Job Description reused for ${jdId}`);
-        await prisma.jobDescription.update({
-          where: { id: jdId },
-          data: {
-            parsedData: cachedJD.parsedData,
-            requirementsEmbedding: cachedJD.requirementsEmbedding,
-            contentHash
-          }
-        });
-        
-        matchService.matchPipeline(jdId).catch(err => {
-          console.error(`Matching error for JD ${jdId}:`, err);
-        });
-        return;
-      }
-
-      console.log(`[Cache MISS] Job Description processed for ${jdId}`);
-
       // 2. Parse JD using OpenAI
       const parsedData = await parseJD(jd.title, jd.description, jd.requirements);
 
@@ -192,7 +138,6 @@ const processJDPipeline = async (jdId) => {
         data: {
           parsedData,
           requirementsEmbedding: requirementsEmbedding || null,
-          contentHash
         }
       });
 
