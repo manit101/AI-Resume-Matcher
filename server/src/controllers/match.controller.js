@@ -13,7 +13,30 @@ exports.getMatchesForJob = async (req, res) => {
       orderBy: { score: 'desc' }
     });
 
-    return res.status(200).json({ success: true, data: matches });
+    // Fetch the latest recruiter actions for these matches
+    const matchIds = matches.map(m => m.id);
+    const actions = await prisma.recruiterAction.findMany({
+      where: { 
+        targetId: { in: matchIds },
+        userId: req.user.uid 
+      },
+      orderBy: { createdAt: 'desc' } // Descending so the first one we find is the latest
+    });
+
+    // Map the latest action to each match
+    const actionMap = {};
+    for (const action of actions) {
+      if (!actionMap[action.targetId]) {
+        actionMap[action.targetId] = action.action; // Store the most recent action
+      }
+    }
+
+    const matchesWithActions = matches.map(m => ({
+      ...m,
+      action: actionMap[m.id] || null
+    }));
+
+    return res.status(200).json({ success: true, data: matchesWithActions });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import CandidateCard from './CandidateCard';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Filter } from 'lucide-react';
 
 export default function ResultsPanel({ status, results, onActionUpdate }) {
+  const [filter, setFilter] = useState('ALL');
   
   if (status === 'IDLE') {
     return (
@@ -60,22 +61,84 @@ export default function ResultsPanel({ status, results, onActionUpdate }) {
   }
 
   // COMPLETED STATE
+  const getFilteredResults = () => {
+    let sorted = [...results].sort((a, b) => b.score - a.score);
+    if (filter === 'TOP_3') return sorted.slice(0, 3);
+    if (filter === 'SHORTLISTED') return sorted.filter(r => r.action === 'SHORTLISTED');
+    if (filter === 'REJECTED') return sorted.filter(r => r.action === 'REJECTED');
+    if (filter === 'HOLD') return sorted.filter(r => r.action === 'HOLD');
+    return sorted; // ALL
+  };
+
+  const filteredResults = getFilteredResults();
+
+  const filterOptions = [
+    { id: 'ALL', label: 'All Candidates' },
+    { id: 'TOP_3', label: 'Top 3' },
+    { id: 'SHORTLISTED', label: 'Shortlisted' },
+    { id: 'HOLD', label: 'On Hold' },
+    { id: 'REJECTED', label: 'Rejected' },
+  ];
+
+  const averageScore = results.length > 0 
+    ? Math.round(results.reduce((acc, curr) => acc + curr.score, 0) / results.length) 
+    : 0;
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Ranked Candidates</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Showing {results.length} analyzed resumes</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+            Ranked Candidates
+          </h2>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Showing {results.length} analyzed resumes
+            </p>
+            {results.length > 0 && (
+              <>
+                <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600 hidden sm:block"></span>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-900/50 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700/50">
+                  Batch Average: <span className="font-bold text-primary-600 dark:text-primary-400">{averageScore}%</span>
+                </p>
+              </>
+            )}
+          </div>
         </div>
-        <div className="px-4 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-sm font-bold border border-green-200 dark:border-green-800">
-          Analysis Complete
+        
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center text-sm font-medium text-slate-500 dark:text-slate-400 mr-2">
+            <Filter className="w-4 h-4 mr-1" />
+            Filter:
+          </div>
+          <div className="flex flex-wrap gap-2 bg-slate-100 dark:bg-slate-900 p-1 rounded-lg">
+            {filterOptions.map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setFilter(opt.id)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                  filter === opt.id 
+                    ? 'bg-white dark:bg-slate-700 text-primary-600 dark:text-primary-400 shadow-sm' 
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="space-y-5">
-        {results.sort((a, b) => b.score - a.score).map((result) => (
-          <CandidateCard key={result.id} result={result} onActionUpdate={onActionUpdate} />
-        ))}
+        {filteredResults.length > 0 ? (
+          filteredResults.map((result) => (
+            <CandidateCard key={result.id} result={result} onActionUpdate={onActionUpdate} />
+          ))
+        ) : (
+          <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+            <p className="text-slate-500 dark:text-slate-400 font-medium">No candidates found for this filter.</p>
+          </div>
+        )}
       </div>
     </div>
   );

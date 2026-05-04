@@ -160,9 +160,10 @@ export default function MatchPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      // Optimistically update the UI to show it's handled, or simply leave it for the next poll 
-      // (If polling is stopped, we should update local state manually if we show badges for actions)
-      // Since CandidateCard might need action state, we will pass it down.
+      // Optimistically update the UI so filters work immediately
+      setResults(prevResults => prevResults.map(r => 
+        r.id === matchId ? { ...r, action } : r
+      ));
     } catch (err) {
       console.error("Action update failed", err);
       alert("Failed to update candidate action");

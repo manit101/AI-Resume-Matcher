@@ -2,8 +2,14 @@ import React, { useState } from 'react';
 import { ExternalLink, Check, X, AlertCircle, FileText, CheckCircle, XCircle, Clock } from 'lucide-react';
 
 export default function CandidateCard({ result, onActionUpdate }) {
-  const [activeAction, setActiveAction] = useState(null);
+  const [activeAction, setActiveAction] = useState(result.action || null);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  React.useEffect(() => {
+    if (result.action) {
+      setActiveAction(result.action);
+    }
+  }, [result.action]);
 
   const { resume, score, matchedSkills, missingSkills, experienceGap, explanation, id } = result;
   const fileName = resume?.fileName || "Unknown Candidate";
