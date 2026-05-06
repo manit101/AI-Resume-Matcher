@@ -68,7 +68,7 @@ exports.parseJD = async (title, description, requirements) => {
     {
       "required_skills": ["Array", "of", "required", "skills"],
       "optional_skills": ["Array", "of", "nice-to-have", "skills"],
-      "experience_required": "Summary string of required experience level (e.g. '3-5 years', 'Senior Level', '2+ years')",
+      "experience_required": "Summary string of required experience level (e.g. '1 year', 'Senior'). If NO experience is specified in the text, output an empty string ''",
       "seniority_level": "One of: Entry-Level, Mid-Level, Senior, Lead, Executive, or Not Specified"
     }
     

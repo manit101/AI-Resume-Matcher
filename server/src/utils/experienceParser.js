@@ -58,14 +58,16 @@ const parseRequiredYears = (requiredYearsInput) => {
     const monthMatch = lowerInput.match(/(\d+)\s*(?:month|months)/);
     if (monthMatch) {
       const months = parseInt(monthMatch[1], 10);
-      // Return fractional years (e.g., 6 months = 0.5)
-      // Or we can round it. But keeping it as float is fine.
       return months / 12;
     }
     
-    // Then check for years
-    const yearMatch = lowerInput.match(/(\d+)/);
+    // Check for years, explicitly requiring year/yr/yrs/+/to/-
+    const yearMatch = lowerInput.match(/(\d+)\s*(?:year|years|yr|yrs|\+|to|-)/);
     if (yearMatch) return parseInt(yearMatch[1], 10);
+    
+    // If it's literally just a single digit, accept it
+    const exactMatch = lowerInput.match(/^(\d+)$/);
+    if (exactMatch) return parseInt(exactMatch[1], 10);
   } else if (typeof requiredYearsInput === 'number') {
     return requiredYearsInput;
   }
@@ -100,7 +102,7 @@ exports.scoreExperience = (candidateYears, requiredYearsInput) => {
   // At half the required years: 50 score
   // At required years: 100 score
   const gap = requiredYears - candidateYears;
-  
+
   // If candidate has at least 50% of required experience, give partial score
   // Otherwise scale down more aggressively
   if (candidateYears >= requiredYears * 0.5) {

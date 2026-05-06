@@ -35,7 +35,7 @@ const formatYears = (years) => {
   if (years > 0 && years < 1) {
     return `${Math.round(years * 12)} months`;
   }
-  return `${Number.isInteger(years) ? years : years.toFixed(1)} years`;
+  return `${Number.isInteger(years) ? years : years.toFixed(1)} year${years === 1 ? '' : 's'}`;
 };
 
 exports.matchPipeline = async (jobId) => {

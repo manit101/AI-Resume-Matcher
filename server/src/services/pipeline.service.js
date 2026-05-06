@@ -26,24 +26,7 @@ const processResumePipeline = async (resumeId, jobId) => {
       const resume = await prisma.resume.findUnique({ where: { id: resumeId } });
       if (!resume) throw new Error(`Resume ${resumeId} not found`);
 
-      // Prevent duplicate processing — but reprocess if parsed data is empty/insufficient
-      // (e.g., scanned PDFs that were processed before OCR was available)
-      const hasGoodData = resume.fullText && resume.fullText.length > 50;
-      if (resume.status === 'COMPLETED' && hasGoodData) {
-        console.log(`Resume ${resumeId} is already COMPLETED with good data. Skipping.`);
-        // Still trigger matching in case the JD is new
-        if (jobId) {
-          matchService.matchPipeline(jobId).catch(err => {
-            console.error(`Matching error for JD ${jobId}:`, err);
-          });
-        }
-        return;
-      }
-      if (resume.status === 'COMPLETED' && !hasGoodData) {
-        console.log(`Resume ${resumeId} is COMPLETED but has insufficient data. Reprocessing...`);
-      }
-
-      // Set status to processing
+      // 1. Mark resume as PROCESSING
       await prisma.resume.update({
         where: { id: resumeId },
         data: { status: 'PROCESSING' }
