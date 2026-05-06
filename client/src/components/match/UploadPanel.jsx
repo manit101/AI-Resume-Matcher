@@ -45,16 +45,7 @@ export default function UploadPanel({ jobData, setJobData, files, setFiles, onRu
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Additional Requirements (Optional)</label>
-          <textarea
-            value={jobData.requirements}
-            onChange={(e) => setJobData({ ...jobData, requirements: e.target.value })}
-            className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors text-slate-900 dark:text-white min-h-[80px] resize-y custom-scrollbar"
-            placeholder="Any specific must-haves..."
-            disabled={isProcessing}
-          />
-        </div>
+
 
         <div className="pt-2">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Candidate Resumes (PDFs) *</label>

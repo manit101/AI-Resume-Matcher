@@ -153,6 +153,9 @@ exports.matchPipeline = async (jobId) => {
 
       let finalScore = (wSemantic * semanticScore) + (wSkill * skillScore) + (wExperience * experienceScore);
 
+      // Enforce strict bounds: 0 to 100
+      finalScore = Math.max(0, Math.min(100, finalScore));
+
       // 5. Relevance Gate — if skill match is extremely low, cap the total score
       // A candidate with near-zero skill overlap should not score high regardless of experience/semantics
       if (skillScore < 10) {
